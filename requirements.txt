@@ -1,0 +1,8 @@
+streamlit
+python-dotenv
+PyPDF2
+langchain==0.1.0
+langchain-community==0.0.13
+langchain-groq
+faiss-cpu
+sentence-transformers
