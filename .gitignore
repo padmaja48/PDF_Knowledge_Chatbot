@@ -1,9 +1,5 @@
-<<<<<<< HEAD
-.env 
-.streamlit/secrets.toml 
-__pycache__/ 
-=======
-.env 
-.streamlit/secrets.toml 
-__pycache__/ 
->>>>>>> origin/main
+.env
+.streamlit/secrets.toml
+__pycache__/
+*.py[cod]
+.venv/

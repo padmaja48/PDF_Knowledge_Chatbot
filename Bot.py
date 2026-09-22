@@ -1,14 +1,24 @@
 import streamlit as st
 from dotenv import load_dotenv
 from PyPDF2 import PdfReader
-from langchain.text_splitter import CharacterTextSplitter
+from langchain_text_splitters import CharacterTextSplitter
 from langchain_community.embeddings import HuggingFaceEmbeddings
-from langchain.vectorstores import FAISS
-from langchain.memory import ConversationBufferMemory
-from langchain.chains import ConversationalRetrievalChain
+from langchain_community.vectorstores import FAISS
+from langchain_classic.memory import ConversationBufferMemory
+from langchain_classic.chains import ConversationalRetrievalChain
 from langchain_groq import ChatGroq
 from htmlTemplates import css, bot_template, user_template
 import os
+
+load_dotenv()
+
+GROQ_MODEL_CANDIDATES = [
+    os.getenv("GROQ_MODEL"),
+    "openai/gpt-oss-20b",
+    "llama-3.3-70b-versatile",
+    "llama-3.1-8b-instant",
+]
+
 
 def get_pdf_text(pdf_docs):
     text = ""
@@ -33,20 +43,53 @@ def get_vectorestore(chunks):
     vectorstore = FAISS.from_texts(texts = chunks,embedding = embeddings)
     return vectorstore
 
+def get_groq_api_key():
+    try:
+        return st.secrets["GROQ_API_KEY"]
+    except Exception:
+        return os.getenv("GROQ_API_KEY")
+
 def get_conversation_chain(vectorstore):
     try:
-        llm = ChatGroq(
-            groq_api_key= st.secrets["GROQ_API_KEY"],
-            model_name="llama-3.3-70b-versatile",  # Current production model (Sept 2025)
-            temperature=0.1
-        ) 
-        memory = ConversationBufferMemory(memory_key = 'chat_history',return_messages = True)
-        conversation_chain = ConversationalRetrievalChain.from_llm(
-            llm = llm,
-            retriever=vectorstore.as_retriever(),
-            memory=memory
-        )
-        return conversation_chain
+        api_key = get_groq_api_key()
+        if not api_key:
+            st.error("Missing GROQ_API_KEY. Add it to Streamlit Cloud Secrets, .streamlit/secrets.toml, or .env.")
+            return None
+
+        seen_models = set()
+        last_error = None
+
+        for model_name in GROQ_MODEL_CANDIDATES:
+            if not model_name or model_name in seen_models:
+                continue
+            seen_models.add(model_name)
+
+            try:
+                llm = ChatGroq(
+                    groq_api_key=api_key,
+                    model_name=model_name,
+                    temperature=0.1,
+                )
+                # ChatGroq validates the model only when the first request is sent.
+                llm.invoke("Reply with OK.")
+                memory = ConversationBufferMemory(memory_key='chat_history', return_messages=True)
+                conversation_chain = ConversationalRetrievalChain.from_llm(
+                    llm=llm,
+                    retriever=vectorstore.as_retriever(),
+                    memory=memory,
+                )
+                return conversation_chain
+            except Exception as e:
+                last_error = e
+                error_str = str(e).lower()
+                if "model_not_found" in error_str or "model" in error_str and "not available" in error_str:
+                    continue
+                raise
+
+        if last_error:
+            raise last_error
+
+        raise RuntimeError("No available Groq model could be initialized.")
     except Exception as e:
         st.error(f"Error creating conversation chain: {str(e)}")
         return None
